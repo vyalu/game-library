@@ -157,7 +157,13 @@ docs/            — картинки для этой страницы
 
 Скриншоты и анимация для README пересоздаются командами `python3 tests/demo/make_art.py` и `python3 tests/demo/screens.py`.
 </details>
+## Поддержать проект
 
+Если панель оказалась полезной, можно поддержать разработку:
+
+[![Donate](https://img.shields.io/badge/YooMoney-%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-8B3FFD?style=for-the-badge)](https://yoomoney.ru/to/4100116126044784)
+
+---
 ## 🙏 Благодарности
 
 - Данные об играх — [Steam](https://store.steampowered.com/), [SteamGridDB](https://www.steamgriddb.com/), [RAWG](https://rawg.io/), [HowLongToBeat](https://howlongtobeat.com/)
