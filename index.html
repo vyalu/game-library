@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: https:; font-src 'self'; media-src 'self' data: blob: https:; connect-src 'none'">
+<title>Game Library</title>
+<link rel="stylesheet" href="assets/fonts/inter.css">
+<link rel="stylesheet" href="assets/vendor/phosphor/phosphor.css">
+<link rel="stylesheet" href="assets/nocturne.css">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<div id="root">
+  <!-- Заголовок окна -->
+  <div id="tb">
+    <div class="tb-left">
+      <img class="tb-logo" src="assets/icon.png" alt="">
+      <span class="tb-title">Game Library</span>
+      <span class="tb-ver" id="ver"></span>
+    </div>
+    <div class="tb-mid"><button class="btn btn-secondary tb-search" data-act="open-pal" data-nav>
+      <i class="ph ph-magnifying-glass"></i><span>Поиск игр в библиотеке</span><span class="tb-kbd">Ctrl K</span>
+    </button></div>
+    <div class="tb-right">
+      <div id="run-pill" class="run-pill" hidden>
+        <span class="run-dot"></span><span class="run-name" id="run-name"></span><span class="run-time live-time" id="run-time">00:00:00</span>
+      </div>
+      <button class="btn btn-secondary tb-upd" id="upd-btn" data-act="open-update" hidden><i class="ph ph-arrow-circle-down"></i><span id="upd-txt">Обновление</span></button>
+      <span id="pad-pill" class="pad-pill" hidden></span>
+      <span class="tb-clock" id="tb-clock"></span>
+      <span id="mode-host" class="mode-host"></span>
+      <button class="btn btn-ghost btn-icon tb-ico" data-act="toggle-theme" id="theme-btn" title="Светлая тема" data-nav><i class="ph ph-sun" id="theme-ico"></i></button>
+      <div class="tb-sep"></div>
+      <div class="win-btns">
+        <button class="btn btn-ghost btn-icon win-btn" data-act="win-min" title="Свернуть"><i class="ph ph-minus"></i></button>
+        <button class="btn btn-ghost btn-icon win-btn" data-act="win-max" title="Развернуть"><i class="ph ph-square"></i></button>
+        <button class="btn btn-ghost btn-icon win-btn close" data-act="win-close" title="Закрыть"><i class="ph ph-x"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="body">
+    <!-- Список игр -->
+    <aside id="sb">
+      <div class="sb-edge"></div>
+      <div class="sb-top" id="sb-top"></div>
+      <div class="sb-list" id="list"></div>
+      <div class="sb-foot" id="sb-foot"></div>
+      <div id="pop-host"></div>
+    </aside>
+    <!-- Карточка выбранной игры -->
+    <main id="main"></main>
+  </div>
+</div>
+
+<!-- Компактный режим -->
+<div id="big" hidden></div>
+<!-- Поиск (Ctrl+K) -->
+<div id="pal" hidden></div>
+<!-- Диалоги и меню -->
+<div id="dlg"></div>
+<div id="menu-host"></div>
+<div id="toast"></div>
+<div id="gp-hints" hidden></div>
+
+<script src="renderer/01-core.js"></script>
+<script src="renderer/02-look.js"></script>
+<script src="renderer/03-library.js"></script>
+<script src="renderer/04-dialogs.js"></script>
+<script src="renderer/05-settings.js"></script>
+<script src="renderer/06-gamepad-ui.js"></script>
+<script src="renderer/07-compact.js"></script>
+<script src="renderer/08-tv.js"></script>
+<script src="renderer/09-events.js"></script>
+<script src="renderer/10-stats.js"></script>
+<script src="renderer/11-gamepad.js"></script>
+<script src="renderer/12-init.js"></script>
+</body>
+</html>

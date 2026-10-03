@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../assets/fonts/inter.css">
+<style>body{margin:0;background:#111}canvas{display:block}</style></head>
+<body>
+<script>
+// Генератор оригинальных демо-картинок для README: пейзажи, неоновый город, океан, космос, лес, пустыня.
+// Всё рисуется кодом — никаких чужих обложек. render(spec) → dataURL PNG.
+function rng(seed) { let s = seed >>> 0 || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+const hsl = (h, s, l, a = 1) => `hsla(${h},${s}%,${l}%,${a})`;
+function ridge(ctx, w, h, y0, amp, rough, r, color, pts = 9) {
+  // ломаная гряда методом смещения середины
+  let line = [[0, y0 + (r() - .5) * amp], [w, y0 + (r() - .5) * amp]];
+  let a = amp;
+  for (let k = 0; k < pts; k++) {
+    const next = [];
+    for (let i = 0; i < line.length - 1; i++) { const [x1, y1] = line[i], [x2, y2] = line[i + 1]; next.push(line[i], [(x1 + x2) / 2, (y1 + y2) / 2 + (r() - .5) * a]); }
+    next.push(line[line.length - 1]); line = next; a *= rough;
+  }
+  ctx.beginPath(); ctx.moveTo(0, h); line.forEach(([x, y]) => ctx.lineTo(x, y)); ctx.lineTo(w, h); ctx.closePath();
+  ctx.fillStyle = color; ctx.fill();
+}
+function grain(ctx, w, h, r, amt = 14) {
+  const img = ctx.getImageData(0, 0, w, h), d = img.data;
+  for (let i = 0; i < d.length; i += 4) { const n = (r() - .5) * amt; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  ctx.putImageData(img, 0, 0);
+}
+function glow(ctx, x, y, rad, color) { const g = ctx.createRadialGradient(x, y, 0, x, y, rad); g.addColorStop(0, color); g.addColorStop(1, 'transparent'); ctx.fillStyle = g; ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2); }
+function stars(ctx, w, h, r, n, maxY) { for (let i = 0; i < n; i++) { ctx.fillStyle = `rgba(255,255,255,${.25 + r() * .7})`; const s = r() < .08 ? 2.2 : 1.1; ctx.fillRect(r() * w, r() * maxY, s, s); } }
+
+function scene(ctx, w, h, sp, r) {
+  const H = sp.hue, k = sp.kind;
+  // небо
+  const sky = ctx.createLinearGradient(0, 0, 0, h);
+  if (k === 'space') { sky.addColorStop(0, hsl(H, 45, 6)); sky.addColorStop(1, hsl(H + 30, 50, 14)); }
+  else if (k === 'neon') { sky.addColorStop(0, hsl(H, 60, 8)); sky.addColorStop(.7, hsl(H + 20, 70, 22)); sky.addColorStop(1, hsl(H + 40, 80, 35)); }
+  else if (k === 'horror') { sky.addColorStop(0, hsl(H, 20, 4)); sky.addColorStop(1, hsl(H, 35, 16)); }
+  else { sky.addColorStop(0, hsl(H, 55, 14)); sky.addColorStop(.55, hsl(H + 25, 60, 38)); sky.addColorStop(1, hsl(H + 45, 75, 62)); }
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
+  if (['space', 'neon', 'horror', 'ice', 'forest'].includes(k) || sp.night) stars(ctx, w, h, r, Math.round(w * h / 2600), h * .6);
+  // светило
+  const sx = w * (.25 + r() * .5), sy = h * (k === 'space' ? .38 : .42 + r() * .12), sr = Math.min(w, h) * (k === 'space' ? .2 : .085);
+  if (k === 'space') {
+    glow(ctx, sx, sy, sr * 2.6, hsl(H + 60, 80, 60, .35));
+    const pg = ctx.createRadialGradient(sx - sr * .4, sy - sr * .4, sr * .1, sx, sy, sr); pg.addColorStop(0, hsl(H + 70, 70, 70)); pg.addColorStop(1, hsl(H + 20, 60, 22));
+    ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 7); ctx.fill();
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate(-.35); ctx.strokeStyle = hsl(H + 60, 70, 75, .55); ctx.lineWidth = sr * .08; ctx.beginPath(); ctx.ellipse(0, 0, sr * 1.8, sr * .42, 0, 0, 7); ctx.stroke(); ctx.restore();
+  } else if (k !== 'horror') {
+    glow(ctx, sx, sy, sr * 5, hsl(H + 50, 95, 75, .45));
+    ctx.fillStyle = hsl(H + 50, 100, 88, .95); ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 7); ctx.fill();
+  } else { glow(ctx, sx, sy * .7, sr * 3, hsl(0, 80, 40, .35)); ctx.fillStyle = hsl(0, 70, 55, .85); ctx.beginPath(); ctx.arc(sx, sy * .7, sr * .6, 0, 7); ctx.fill(); }
+  // земля
+  if (k === 'neon') {
+    for (let layer = 0; layer < 3; layer++) {
+      let x = -20; const base = h * (.62 + layer * .1), dark = 6 + layer * 3;
+      while (x < w) {
+        const bw = 30 + r() * 90, bh = (h * .45) * (.3 + r() * .7) / (1 + layer * .5);
+        ctx.fillStyle = hsl(H + 10, 40, dark); ctx.fillRect(x, base - bh, bw, h);
+        for (let wy = base - bh + 8; wy < h; wy += 10) for (let wx = x + 5; wx < x + bw - 5; wx += 8) if (r() < .18) { ctx.fillStyle = r() < .5 ? hsl(H + 150, 100, 70, .9) : hsl(H - 20, 100, 65, .9); ctx.fillRect(wx, wy, 3, 4); }
+        x += bw + 4;
+      }
+    }
+    const fl = ctx.createLinearGradient(0, h * .85, 0, h); fl.addColorStop(0, hsl(H + 30, 90, 50, .0)); fl.addColorStop(1, hsl(H + 30, 90, 50, .35)); ctx.fillStyle = fl; ctx.fillRect(0, h * .85, w, h * .15);
+  } else if (k === 'ocean') {
+    for (let i = 0; i < 4; i++) ridge(ctx, w, h, h * (.5 + i * .02), h * .08, .55, r, hsl(H + 10, 35, 18 + i * 4, .9), 6);
+    for (let i = 0; i < 26; i++) { const y = h * .62 + i * h * .016; ctx.strokeStyle = hsl(H + 40, 70, 70 - i, .18); ctx.lineWidth = 1.5; ctx.beginPath(); for (let x = 0; x <= w; x += 8) ctx.lineTo(x, y + Math.sin(x / (30 + i * 4) + i) * (2 + i * .4)); ctx.stroke(); }
+    const sea = ctx.createLinearGradient(0, h * .62, 0, h); sea.addColorStop(0, hsl(H, 55, 30, .55)); sea.addColorStop(1, hsl(H - 10, 60, 10, .95)); ctx.fillStyle = sea; ctx.fillRect(0, h * .62, w, h);
+    glow(ctx, sx, h * .66, sr * 3, hsl(H + 50, 95, 75, .35));
+  } else if (k === 'desert') {
+    for (let i = 0; i < 5; i++) ridge(ctx, w, h, h * (.55 + i * .09), h * (w / h > 2 ? .22 : .1), .5, r, hsl(H + 5 - i * 3, 55 - i * 4, 52 - i * 9), 7);
+  } else if (k === 'forest') {
+    for (let i = 0; i < 4; i++) {
+      const base = h * (.55 + i * .11), col = hsl(H + 100, 30, 22 - i * 4);
+      ridge(ctx, w, h, base, h * (w / h > 2 ? .12 : .05), .5, r, col, 6);
+      for (let x = -10; x < w; x += 10 + r() * 22) { const th = (40 + r() * 70) * (1 + i * .35) * h / 900; ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x, base + 6); ctx.lineTo(x + th * .28, base - th); ctx.lineTo(x + th * .56, base + 6); ctx.fill(); }
+      const fog = ctx.createLinearGradient(0, base - h * .1, 0, base + h * .05); fog.addColorStop(0, 'transparent'); fog.addColorStop(1, hsl(H + 40, 40, 60, .12)); ctx.fillStyle = fog; ctx.fillRect(0, base - h * .1, w, h * .15);
+    }
+  } else if (k === 'space') {
+    ridge(ctx, w, h, h * .82, h * .06, .55, r, hsl(H, 25, 9), 8);
+    ridge(ctx, w, h, h * .9, h * .05, .55, r, hsl(H, 25, 5), 8);
+  } else {
+    const n = 5, amp = w / h > 2 ? 2.1 : 1;
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      ridge(ctx, w, h, h * (.5 + t * .32), h * (.28 - t * .12) * amp, .58, r, hsl(H + 20 - t * 10, 35 - t * 10, (k === 'ice' ? 70 : 45) * (1 - t * .78) + (k === 'horror' ? -8 : 4)), 9);
+      const fog = ctx.createLinearGradient(0, h * (.45 + t * .32), 0, h); fog.addColorStop(0, 'transparent'); fog.addColorStop(.25, hsl(H + 40, 60, 70, .10)); fog.addColorStop(1, 'transparent'); ctx.fillStyle = fog; ctx.fillRect(0, h * (.45 + t * .32), w, h);
+    }
+  }
+  if (sp.figure) {   // силуэт героя на переднем плане
+    const fx = w * (sp.figX || .68), fy = h * .86, fs = h * .11;
+    ctx.fillStyle = hsl(H, 30, 4);
+    ctx.beginPath(); ctx.arc(fx, fy - fs * 1.45, fs * .16, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(fx - fs * .22, fy - fs * 1.25); ctx.lineTo(fx + fs * .22, fy - fs * 1.25); ctx.lineTo(fx + fs * .34, fy); ctx.lineTo(fx - fs * .34, fy); ctx.fill();
+    ctx.fillRect(fx + fs * .25, fy - fs * 1.7, fs * .04, fs * 1.75);
+    glow(ctx, fx + fs * .27, fy - fs * 1.72, fs * .35, hsl(H + 60, 100, 70, .8));
+  }
+  // виньетка и зерно
+  const v = ctx.createRadialGradient(w / 2, h * .45, Math.min(w, h) * .3, w / 2, h / 2, Math.max(w, h) * .75); v.addColorStop(0, 'transparent'); v.addColorStop(1, 'rgba(0,0,0,.55)'); ctx.fillStyle = v; ctx.fillRect(0, 0, w, h);
+  grain(ctx, w, h, r, 10);
+}
+function fitText(ctx, text, maxW, size, weight = 800) {
+  let s = size; do { ctx.font = `${weight} ${s}px Inter`; s -= 2; } while (ctx.measureText(text).width > maxW && s > 12); return s + 2;
+}
+function wrap(ctx, text, maxW) { const words = text.split(' '), lines = []; let cur = ''; for (const wd of words) { const t = cur ? cur + ' ' + wd : wd; if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = wd; } else cur = t; } if (cur) lines.push(cur); return lines; }
+function titleBlock(ctx, w, h, sp, x, yBottom, maxW, size, align = 'left') {
+  ctx.save(); ctx.textAlign = align; ctx.textBaseline = 'alphabetic';
+  ctx.font = `800 ${size}px Inter`; let lines = wrap(ctx, sp.title.toUpperCase(), maxW);
+  while (lines.some((l) => ctx.measureText(l).width > maxW) && size > 20) { size -= 4; ctx.font = `800 ${size}px Inter`; lines = wrap(ctx, sp.title.toUpperCase(), maxW); }
+  const lh = size * .98; let y = yBottom - (lines.length - 1) * lh;
+  ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = size * .35; ctx.shadowOffsetY = size * .06;
+  const g = ctx.createLinearGradient(0, y - size, 0, yBottom); g.addColorStop(0, '#fff'); g.addColorStop(1, hsl(sp.hue + 45, 90, 82));
+  ctx.fillStyle = g; ctx.letterSpacing = `${-size * .02}px`;
+  for (const l of lines) { ctx.fillText(l, x, y); y += lh; }
+  ctx.restore();
+  return yBottom - lines.length * lh;
+}
+function render(sp) {
+  const c = document.createElement('canvas'); c.width = sp.w; c.height = sp.h; const ctx = c.getContext('2d'); const r = rng(sp.seed);
+  if (sp.type === 'logo') {
+    // одна строка, подогнанная по ширине, — как логотип игры
+    const t = sp.title.toUpperCase(), size = Math.min(sp.h * .7, fitText(ctx, t, sp.w * .96, sp.h * .7));
+    ctx.font = `800 ${size}px Inter`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = size * .3; ctx.shadowOffsetY = size * .05;
+    const g = ctx.createLinearGradient(0, sp.h / 2 - size / 2, 0, sp.h / 2 + size / 2); g.addColorStop(0, '#fff'); g.addColorStop(1, hsl(sp.hue + 45, 90, 82));
+    ctx.fillStyle = g; ctx.letterSpacing = `${-size * .02}px`; ctx.fillText(t, sp.w / 2, sp.h / 2);
+    return c.toDataURL('image/png');
+  }
+  scene(ctx, sp.w, sp.h, sp, r);
+  if (sp.type === 'cover') {
+    const sh = ctx.createLinearGradient(0, sp.h * .55, 0, sp.h); sh.addColorStop(0, 'transparent'); sh.addColorStop(1, 'rgba(0,0,0,.72)'); ctx.fillStyle = sh; ctx.fillRect(0, sp.h * .55, sp.w, sp.h * .45);
+    const top = titleBlock(ctx, sp.w, sp.h, sp, sp.w * .08, sp.h * .9, sp.w * .84, sp.w * .16);
+    ctx.font = `600 ${sp.w * .032}px Inter`; ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.letterSpacing = `${sp.w * .006}px`;
+    ctx.fillText(sp.dev.toUpperCase(), sp.w * .08, top - sp.w * .03);
+  }
+  return c.toDataURL('image/png');
+}
+</script></body></html>

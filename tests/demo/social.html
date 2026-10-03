@@ -1,0 +1,33 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../assets/fonts/inter.css">
+<style>
+*{box-sizing:border-box;margin:0}
+body{width:1280px;height:640px;overflow:hidden;font-family:Inter,sans-serif;color:#fff;
+  background:radial-gradient(60% 90% at 78% 40%,rgba(82,176,67,.28),transparent 70%),radial-gradient(50% 80% at 10% 110%,rgba(106,75,214,.25),transparent 70%),#0d0f13}
+.grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:40px 40px;
+  -webkit-mask-image:radial-gradient(70% 90% at 70% 50%,#000,transparent)}
+.l{position:absolute;left:72px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center;gap:18px;width:520px}
+.brand{display:flex;align-items:center;gap:16px}
+.brand img{width:64px;height:64px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.brand span{font-size:15px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:#7fd36f}
+h1{font-size:72px;font-weight:800;letter-spacing:-.035em;line-height:.95;background:linear-gradient(180deg,#fff 30%,#b9f0a8);-webkit-background-clip:text;color:transparent}
+p{font-size:19px;color:rgba(255,255,255,.78);font-weight:450;line-height:1.35}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.chips b{font-size:12.5px;font-weight:600;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.85)}
+.stack{position:absolute;right:-10px;top:50%;width:620px;height:360px;transform:translateY(-50%);perspective:1200px}
+.c{position:absolute;top:30px;width:190px;height:285px;border-radius:14px;background-size:cover;background-position:center;box-shadow:0 30px 60px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08)}
+.c.m{box-shadow:0 0 0 3px #fff,0 0 60px rgba(82,176,67,.55),0 30px 60px rgba(0,0,0,.6);z-index:5}
+</style></head><body><div class="grid"></div>
+<div class="l">
+  <div class="brand"><img src="../../assets/icon.png"><span>для Windows · с геймпадом</span></div>
+  <h1>Game Library</h1>
+  <p>Все твои игры — в одной красивой библиотеке.<br>Три режима, статистика и управление с геймпада.</p>
+  <div class="chips"><b>Steam</b><b>Epic Games</b><b>GOG</b><b>Ubisoft</b><b>EA</b><b>Battle.net</b></div>
+</div>
+<div class="stack">
+  <div class="c" style="left:0;transform:rotateY(28deg) translateZ(-120px) translateX(30px);background-image:url(art/neon-cover.png);opacity:.75"></div>
+  <div class="c" style="left:95px;transform:rotateY(18deg) translateZ(-60px);background-image:url(art/starfall-cover.png);opacity:.9"></div>
+  <div class="c m" style="left:215px;top:20px;width:206px;height:309px;background-image:url(art/ashfall-cover.png)"></div>
+  <div class="c" style="left:345px;transform:rotateY(-18deg) translateZ(-60px);background-image:url(art/tides-cover.png);opacity:.9"></div>
+  <div class="c" style="left:440px;transform:rotateY(-28deg) translateZ(-120px) translateX(-30px);background-image:url(art/pastures-cover.png);opacity:.75"></div>
+</div>
+</body></html>
