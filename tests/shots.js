@@ -1,0 +1,23 @@
+// Проверка поиска «моих скриншотов» на временных папках: Steam (F12), Xbox Game Bar, NVIDIA
+const fs = require('fs'), path = require('path'), os = require('os'), assert = require('assert');
+const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+const body = src.slice(src.indexOf('const SHOT_EXT'), src.indexOf("ipcMain.handle('my-screenshots'"));
+const normName = (x) => String(x || '').toLowerCase().replace(/[™®©]/g, '').replace(/[^a-zа-яё0-9]+/gi, '');
+const { myScreenshots } = new Function('fs', 'path', 'normName', 'steamRoot', 'app', body + '\nreturn { myScreenshots };')(fs, path, normName, () => null, { getPath: () => { throw 0; } });
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gl-shots-'));
+const mk = (p, t) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, 'x'); if (t) fs.utimesSync(p, t / 1000, t / 1000); };
+const steam = path.join(tmp, 'Steam'), videos = path.join(tmp, 'Videos');
+const sd = path.join(steam, 'userdata', '123', '760', 'remote', '1057090', 'screenshots');
+mk(path.join(sd, '20261004_1.jpg'), 3e12); mk(path.join(sd, 'thumbnails', '20261004_1.jpg')); mk(path.join(sd, '20261003_2.jpg'), 2e12);
+mk(path.join(videos, 'Captures', 'Ori and the Will of the Wisps 04.10.2026 19_20_11.png'), 2.5e12);
+mk(path.join(videos, 'Captures', 'Ori and the Will of the Wisps 04.10.2026 19_25_00.mp4'), 2.6e12);
+mk(path.join(videos, 'Captures', 'Hades II 01.10.2026.png'));
+mk(path.join(videos, 'Ori and the Will of the Wisps', 'Ori 2026.10.04 - 19.30.00.01.mp4'), 1e12);
+const r = myScreenshots({ name: 'Ori and the Will of the Wisps', store: 'steam', storeId: '1057090' }, { steam, videos });
+assert.deepStrictEqual(r.map((x) => x.src), ['steam', 'gamebar', 'gamebar', 'steam', 'nvidia'], JSON.stringify(r.map((x) => [x.src, path.basename(x.file)])));
+assert.ok(r[0].thumb && r[0].thumb.includes('thumbnails'), 'миниатюра Steam не найдена');
+assert.ok(r[1].video && !r[2].video, 'клип не отмечен как видео');
+assert.ok(!r.some((x) => /Hades/.test(x.file)), 'попал скриншот другой игры');
+assert.deepStrictEqual(myScreenshots({ name: 'Ori', store: 'gog' }, { steam, videos: path.join(tmp, 'нет') }), []);
+fs.rmSync(tmp, { recursive: true, force: true });
+console.log('Мои скриншоты: Steam, Xbox Game Bar и NVIDIA находятся, чужие игры не попадают, новые — первыми');

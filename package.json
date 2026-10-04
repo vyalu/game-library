@@ -1,6 +1,6 @@
 {
   "name": "game-library",
-  "version": "1.15.1",
+  "version": "1.16.4",
   "description": "Game Library — локальная библиотека игр для Windows",
   "main": "main.js",
   "scripts": {

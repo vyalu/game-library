@@ -859,17 +859,19 @@ async function ruDescSync() {
   if (!api.ruDescription || ruDescSync.busy) return;
   ruDescSync.busy = true;
   try {
-    const todo = games.filter((g) => g.description && !g.descUser && !HAS_RU.test(g.description) && (g.ruTried || 0) < 2 && !isMissing(g));
+    // Игры не из Steam ждут, пока найдутся подробности (там тот же поиск в Steam) — не ищем дважды и не злим Steam
+    const todo = games.filter((g) => g.description && !g.descUser && !HAS_RU.test(g.description) && (g.ruTried || 0) < 2 && !isMissing(g)
+      && !(g.extra?.about && HAS_RU.test(g.extra.about)) && (storeOf(g) === 'steam' || !needExtra(g)));
     let n = 0;
     for (const g0 of todo) {
       const g = byId(g0.id); if (!g) continue;
       const sent = g.description;
-      const r = await api.ruDescription({ name: g.name, steamAppId: storeOf(g) === 'steam' ? g.storeId : null, description: g.description }).catch(() => null);
+      const r = await api.ruDescription({ name: g.name, steamAppId: storeOf(g) === 'steam' ? g.storeId : (g.extra?.from === 'steam' && g.extra.appid) || null, description: g.description }).catch(() => null);
       const cur = byId(g0.id); if (!cur) continue;
       if (r?.description && HAS_RU.test(r.description) && cur.description === sent && !cur.descUser) { cur.description = r.description; n++; if (S.selId === cur.id) render(); }
       cur.ruTried = (cur.ruTried || 0) + 1;   // не стучимся бесконечно, если русского описания нигде нет
       await saveGame(cur);
-      await new Promise((res) => setTimeout(res, 700));   // магазин Steam не любит частые запросы
+      await new Promise((res) => setTimeout(res, 1800));   // магазин Steam не любит частые запросы
     }
     if (n) { render(); toast(`Описания на русском: ${n} ${plural(n, 'игра', 'игры', 'игр')}`, 'ok'); }
   } finally { ruDescSync.busy = false; }

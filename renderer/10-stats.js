@@ -2,8 +2,8 @@
 // ─── Статистика: сколько, во что и когда вы играете ──────────────────────────
 // Данные: минуты по дням (g.days), журнал сессий (g.sess = [[начало, минуты]…]) и общее время (g.playtime,
 // в том числе перенесённое из Steam). За «всё время» берём общее время, за периоды — дни.
-const ST = { per: 'month' };
-const ST_PERIODS = [['week', 'Неделя', 7], ['month', 'Месяц', 30], ['year', 'Год', 365], ['all', 'Всё время', 0]];
+const ST = { per: null };
+const ST_PERIODS = [['today', 'Сегодня', 1], ['week', 'Неделя', 7], ['month', 'Месяц', 30], ['year', 'Год', 365], ['all', 'Всё время', 0]];
 const MON = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const WDAY = ['воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу'];
 const WD2 = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -71,7 +71,51 @@ function statsData(per) {
   return { len, total, byGame, activeDays: activeKeys.length, series, sess, genres, favWd, favTod, cur, best, days };
 }
 const GEN_COLORS = ['var(--color-accent)', '#4f8fe0', '#d8913a', '#b45cc9', '#3fb8a9', '#d2554f', '#8a8f98'];
+// Сегодня: сколько, во что и когда — с лентой сессий по часам
+const hhmm = (t) => new Date(t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+const gameTone = (g) => `oklch(0.72 0.14 ${hueOf(g)})`;
+function todayMinutes() { return allDays().get(dayKey(new Date())) || 0; }
+function todayBody() {
+  const D = statsData('today');
+  const day0 = dayStart(0).getTime(), now = Date.now();
+  const live = [...running].map(([id, st]) => ({ g: byId(id), s: Math.max(st, day0), m: Math.max(1, Math.round((now - Math.max(st, day0)) / 60000)), live: true })).filter((x) => x.g);
+  const sess = [...D.sess.filter((x) => x.s >= day0), ...live].sort((a, b) => a.s - b.s);
+  // «Обычно» — среднее за игровые дни последних 30 дней (без сегодня)
+  const m30 = statsData('month'); const prevDays = m30.activeDays - (D.total ? 1 : 0); const prevTotal = m30.total - D.total;
+  const usual = prevDays > 0 ? Math.round(prevTotal / prevDays) : 0;
+  if (!D.total) return `<div class="st-empty"><i class="ph ph-moon-stars"></i><b>Сегодня ещё не играли</b>
+    <span>${usual ? `Обычно в игровой день — ${esc(exactTime(usual))}.` : 'Запустите игру — время, игры и сессии появятся здесь.'}</span></div>`;
+  const kpi = (ic, v, l, sub = '') => `<div class="st-kpi"><i class="ph ${ic}"></i><div><b>${v}</b><span>${l}</span>${sub ? `<small>${sub}</small>` : ''}</div></div>`;
+  const cmp = usual ? (D.total >= usual ? `больше обычного (${exactTime(usual)})` : `обычно ${exactTime(usual)}`) : '';
+  const seg = (x) => { const l = (x.s - day0) / 864e5 * 100, w = Math.max(0.5, x.m * 6e4 / 864e5 * 100);
+    return `<span class="tl-seg${x.live ? ' live' : ''}" style="left:${l.toFixed(2)}%;width:${Math.min(w, 100 - l).toFixed(2)}%;background:${gameTone(x.g)}" title="${esc(x.g.name)}: ${hhmm(x.s)}–${x.live ? 'сейчас' : hhmm(x.s + x.m * 6e4)} · ${esc(exactTime(x.m))}"></span>`; };
+  const nowPct = ((now - day0) / 864e5 * 100).toFixed(2);
+  const top = D.byGame.slice(0, 8), topMax = top[0][1];
+  return `
+    <div class="st-kpis">
+      ${kpi('ph-timer', esc(exactTime(D.total)), 'наиграно сегодня', esc(cmp))}
+      ${kpi('ph-game-controller', String(D.byGame.length), plural(D.byGame.length, 'игра', 'игры', 'игр'))}
+      ${kpi('ph-hourglass-medium', String(sess.length || '—'), sess.length ? plural(sess.length, 'сессия', 'сессии', 'сессий') : 'сессий', sess[0] ? 'первая в ' + hhmm(sess[0].s) : '')}
+      ${live.length ? kpi('ph-play-circle', esc(live[0].g.name), 'идёт сейчас', 'с ' + hhmm(live[0].s)) : kpi('ph-fire', String(D.cur), plural(D.cur, 'день подряд', 'дня подряд', 'дней подряд'), 'текущая серия')}
+    </div>
+    <section class="st-card"><h3>Когда играли<span>${esc(new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }))}</span></h3>
+      <div class="tl"><div class="tl-track">${sess.map(seg).join('')}<span class="tl-now" style="left:${nowPct}%"></span></div>
+        <div class="tl-axis">${[0, 3, 6, 9, 12, 15, 18, 21, 24].map((h) => `<span style="left:${h / 24 * 100}%">${pad(h % 24)}:00</span>`).join('')}</div></div>
+      ${sess.some((x) => !x.live) || live.length ? '' : '<div class="st-note">Время из Steam без отдельных сессий — на ленте его не видно.</div>'}
+    </section>
+    <div class="st-grid">
+      <section class="st-card"><h3>Во что играли</h3>
+        <div class="st-top">${top.map(([g, m], i) => `<button class="st-game" data-act="st-game" data-id="${esc(g.id)}" data-nav>
+          <span class="st-n" style="color:${gameTone(g)}">●</span><span class="st-ico" style="${coverBg(g)}">${g.cover ? '' : esc(initials(g.name))}</span>
+          <span class="st-gb"><b>${esc(g.name)}</b><span class="st-track"><span style="width:${Math.max(2, Math.round(m / topMax * 100))}%;background:${gameTone(g)}"></span></span></span>
+          <span class="st-gv"><b>${esc(exactTime(m))}</b><small>${Math.round(m / D.total * 100)}%</small></span></button>`).join('')}</div></section>
+      <section class="st-card"><h3>Сессии</h3>
+        <div class="st-sess st-sess-today">${sess.length ? [...sess].reverse().map((x) => `<div><span class="st-ico" style="${coverBg(x.g)}">${x.g.cover ? '' : esc(initials(x.g.name))}</span><b>${esc(x.g.name)}</b>
+          <span>${hhmm(x.s)}–${x.live ? '<i class="live-dot"></i>сейчас' : hhmm(x.s + x.m * 6e4)}</span><em>${esc(exactTime(x.m))}</em></div>`).join('') : '<div class="st-note">Сессии появятся после следующей игры.</div>'}</div></section>
+    </div>`;
+}
 function statsBody(per) {
+  if (per === 'today') return todayBody();
   const D = statsData(per);
   const perName = { week: 'за неделю', month: 'за 30 дней', year: 'за год', all: 'за всё время' }[per];
   if (!D.total) return `<div class="st-empty"><i class="ph ph-chart-bar"></i><b>Пока нечего показать ${esc(perName)}</b>
@@ -128,6 +172,7 @@ function statsBody(per) {
         <span>${esc(new Date(x.s).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }))}, ${esc(new Date(x.s).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }))}</span><em>${esc(exactTime(x.m))}</em></div>`).join('')}</div></section>` : ''}`;
 }
 function statsDlg() {
+  if (!ST.per) ST.per = todayMinutes() > 0 ? 'today' : 'month';   // играли сегодня — сразу показываем «Сегодня»
   const d = openDlg(`<div class="st-dlg">${head('Статистика', 'Сколько, во что и когда вы играете')}
     <div class="st-pers">${ST_PERIODS.map(([k, l]) => `<button class="st-per${ST.per === k ? ' on' : ''}" data-st-per="${k}" data-nav>${l}</button>`).join('')}${INPUT.mode !== 'kbd' ? `<span class="st-pk">${keyCap('lb')}${keyCap('rb')}</span>` : ''}</div>
     <div class="st-body">${statsBody(ST.per)}</div></div>`, { cls: 'wide st' });

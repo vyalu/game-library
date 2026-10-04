@@ -96,7 +96,7 @@ function bpRender() {
     if (type === 'tabs') return bpTabsHTML(r);
     const col = r === S.big.bpr ? cc : Math.min(S.big.bpc[key] || 0, items.length - 1);
     return `<section class="bp-shelf${r === 0 ? ' first' : ''}${r === S.big.bpr ? ' cur' : ''}" data-r="${r}" data-key="${esc(key)}">
-      <h3>${esc(label)}<span>${items.length}</span></h3>
+      <h3>${esc(label)}<span>${items.length}${key === 'col' && listHoursText(bpColl()[0], items) ? ' · ' + esc(listHoursText(bpColl()[0], items)) : ''}</span></h3>
       <div class="bp-row" data-key="${esc(key)}">${items.map((x, c) => bpTileHTML(x, r, c, r === S.big.bpr && c === col)).join('')}</div>
       ${r === 0 ? `<div class="bp-info" id="bp-info">${bpInfoHTML(items[col])}</div>` : ''}</section>`;
   }).join('')}</div>`;
@@ -137,7 +137,7 @@ function bpSetTab(key, quiet) {
   const colR = sh.findIndex((x) => x[0] === 'col'), old = $('#big .bp-shelf[data-key="col"]');
   if (old && colR >= 0) {
     const [key2, label, items] = sh[colR];
-    old.outerHTML = `<section class="bp-shelf${S.big.bpr === colR ? ' cur' : ''}" data-r="${colR}" data-key="col"><h3>${esc(label)}<span>${items.length}</span></h3>
+    old.outerHTML = `<section class="bp-shelf${S.big.bpr === colR ? ' cur' : ''}" data-r="${colR}" data-key="col"><h3>${esc(label)}<span>${items.length}${listHoursText(bpColl()[0], items) ? ' · ' + esc(listHoursText(bpColl()[0], items)) : ''}</span></h3>
       <div class="bp-row" data-key="${key2}">${items.map((x, c) => bpTileHTML(x, colR, c, S.big.bpr === colR && c === 0)).join('')}</div></section>`;
   } else bpRender();
 }

@@ -209,7 +209,7 @@ function libraryHTML(list) {
   return `<div class="mn-tabs">${pk ? keyCap('lb') : ''}${bigTabs().map(([k, l]) => `<button class="big-tab${S.big.tab === k ? ' on' : ''}" data-act="big-tab" data-arg="${esc(k)}">${esc(l)}</button>`).join('')}${pk ? keyCap('rb') : ''}</div>
     <div class="big-bar"><button class="btn btn-secondary big-sort" data-act="big-sort"><i class="ph ph-sort-descending"></i>${esc(BIG_SORT[bigSortKey()])}<i class="ph ph-caret-down muted"></i></button>
       <button class="btn btn-secondary big-sort${S.big.viewOpen ? ' on' : ''}" data-act="big-view" title="Размер и вид карточек (Ctrl + колесо мыши)"><i class="ph ph-sliders-horizontal"></i>Вид</button>
-      <span class="grow"></span><span class="muted">Игр: ${list.length}</span>
+      <span class="grow"></span><span class="muted"${listHoursText(S.big.tab, list) ? ` title="${esc(listHoursTitle(list))}"` : ''}>Игр: ${list.length}${listHoursText(S.big.tab, list) ? ' · ' + esc(listHoursText(S.big.tab, list)) : ''}</span>
       <button class="btn btn-secondary big-sort" data-act="big-menu" title="Режим, настройки, добавление игр"><i class="ph ph-list"></i>Меню</button></div>
     ${S.big.viewOpen ? viewPopHTML() : ''}
     <div class="bgrid-wrap" id="bgrid">${list.length ? `<div class="bgrid ${tileClass()}" style="${tileGridStyle()}">${list.map(tileHTML).join('')}</div>`
@@ -241,10 +241,12 @@ function bpPageHTML(g) {
         <h2>Об игре</h2>
         ${genresOf(g).length || g.completed ? `<div class="pg-chips">${genresOf(g).map((t) => `<span class="pg-chip">${esc(t)}</span>`).join('')}${g.completed ? '<span class="pg-chip done"><i class="ph-fill ph-check-circle"></i>Пройдена</span>' : ''}</div>` : ''}
         ${extraHTML(g)}
+        ${myShotsHTML(g)}
         ${descSource(g) ? descHTML(g) : '<p class="pg-empty">Описание ещё не загружено. Опции → «Обновить обложку и описание».</p>'}
       </section>
       <aside class="tvp-side">
         <div class="tvp-facts"><h2>Сведения</h2>${facts.map(([l, v]) => `<div><span>${esc(l)}</span><b>${esc(v)}</b></div>`).join('')}</div>
+        <div class="tvp-notes">${notesHTML(g)}</div>
       </aside>
       ${hasHist ? `<section class="tvp-act"><h2>Активность<span>${esc(exactTime(m14))} за последние две недели</span></h2>${barsHTML(g)}<div class="bars-axis"><span>2 недели назад</span><span>Сегодня</span></div></section>` : ''}
     </div>
@@ -276,6 +278,7 @@ function pageHTML(g) {
           <section class="pg-sec"><h3 class="pg-h">Об игре</h3>
             ${genresOf(g).length || g.completed ? `<div class="pg-chips">${genresOf(g).map((t) => `<span class="pg-chip">${esc(t)}</span>`).join('')}${g.completed ? '<span class="pg-chip done"><i class="ph-fill ph-check-circle"></i>Пройдена</span>' : ''}</div>` : ''}
             ${extraHTML(g)}
+            ${myShotsHTML(g)}
             ${descSource(g) ? descHTML(g) : `<p class="pg-empty">Описание ещё не загружено.</p><button class="btn btn-secondary" data-act="big-enrich" style="align-self:flex-start">Найти обложку и описание</button>`}
           </section>
           ${hasHist ? `<section class="pg-sec"><h3 class="pg-h">Активность за 2 недели<span>${esc(exactTime(min14(g)))}</span></h3><div class="pg-act">${barsHTML(g)}<div class="bars-axis"><span>2 недели назад</span><span>Сегодня</span></div></div></section>` : ''}
@@ -291,6 +294,9 @@ function pageHTML(g) {
   </div>`;
 }
 function renderBig() {
+  const nk = notesSnap(); try { return renderBig0(); } finally { notesRestore(nk); }
+}
+function renderBig0() {
   setTimeout(gxEdgesAll, 0);
   if (S.big.bp) return bpRender();
   const list = bigList();
@@ -387,7 +393,7 @@ function bigA() {
   const g = bigCurrent();
   if (S.big.sheet) { const it = sheetItems(g)[S.big.si]; if (it) { sfx('select'); it.run(); } return; }
   if (!g) return;
-  if (S.big.page && S.big.pf === 'media') { const th = document.querySelectorAll('#bpage .gx-th')[S.big.mx || 0]; sfx('select'); return lbFromGame(S.big.page, +(th?.dataset.arg || 0)); }
+  if (S.big.page && S.big.pf === 'media') { const th = document.querySelectorAll('#bpage .gx-th')[S.big.mx || 0]; sfx('select'); return th?.dataset.act === 'lb-my' ? lbMy(S.big.page, +th.dataset.arg) : lbFromGame(S.big.page, +(th?.dataset.arg || 0)); }
   if (S.big.page && S.big.pf === 'desc') { const m = $('#bpage .desc-more'); if (m) { m.click(); m.classList.add('on'); if (S.big.bp) { const leg = $('#big .bp-legend'); if (leg) leg.outerHTML = bpLegendHTML(byId(S.big.page)); } } return; }
   if (S.big.page) { const a = pageActs(g)[S.big.pi]; if (a) { if (S.big.pi) sfx('select'); a.run(); } return; }
   if (S.big.zone === 'side' || S.big.bp) return openPage(g.id);

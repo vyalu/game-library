@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('api', {
   // Авто-данные
   ruDescription: (g) => ipcRenderer.invoke('ru-description', g),
   gameExtra: (g) => ipcRenderer.invoke('game-extra', g),
+  myScreenshots: (g) => ipcRenderer.invoke('my-screenshots', g),
   enrichGame: (gameId, gameName, opts) => ipcRenderer.invoke('enrich-game', gameId, gameName, opts || {}),
   rawgSearch: (query) => ipcRenderer.invoke('rawg-search', query),
   // Настройки
@@ -63,6 +64,8 @@ contextBridge.exposeInMainWorld('api', {
   onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_, data) => cb(data)),
   // Трей
   onOpenFullscreen: (cb) => ipcRenderer.on('open-fullscreen', () => cb()),
+  onOpenTv: (cb) => ipcRenderer.on('open-tv', () => cb()),
+  onTrayLaunch: (cb) => ipcRenderer.on('tray-launch', (e, id) => cb(id)),
   // Окно
   minimize: () => ipcRenderer.send('window-minimize'),
   maximize: () => ipcRenderer.send('window-maximize'),

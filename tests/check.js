@@ -10,6 +10,10 @@ try {
   console.log(`Синтаксис в порядке (${files.length} файлов)`);
   run(process.execPath, ['tests/stores.js']);
   run(process.execPath, ['tests/hltb.js']);
+  run(process.execPath, ['tests/watch.js']);
+  run(process.execPath, ['tests/tray.js']);
+  run(process.execPath, ['tests/shots.js']);
+  run(process.execPath, ['tests/steamsearch.js']);
   run(py, ['tests/names.py']);
   run(py, ['tests/smoke.py']);
 } catch { process.exit(1); }

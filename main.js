@@ -159,7 +159,7 @@ function createWindow() {
     }
   });
   mainWindow.on('closed', () => { mainWindow = null; });
-  mainWindow.webContents.once('did-finish-load', () => startPadWatch());
+  mainWindow.webContents.once('did-finish-load', () => { startPadWatch(); startGameWatch(); });
   mainWindow.on('enter-full-screen', () => sendToWindow('fullscreen-changed', true));
   mainWindow.on('leave-full-screen', () => sendToWindow('fullscreen-changed', false));
 
@@ -195,17 +195,52 @@ function sendToWindow(channel, data) {
   }
 }
 
+// Недавние игры в меню трея: запуск без открытия окна (через окно программы — так же считается время)
+const trayIcons = new Map();
+function trayIcon(cover) {
+  if (!cover) return undefined;
+  if (trayIcons.has(cover)) return trayIcons.get(cover);
+  let img;
+  try {
+    const p = /^file:/i.test(cover) ? require('url').fileURLToPath(cover) : cover;
+    if (!/^https?:/i.test(p) && fs.existsSync(p)) {
+      img = nativeImage.createFromPath(p);
+      if (!img.isEmpty()) { const { width: w, height: h } = img.getSize(), side = Math.min(w, h);
+        img = img.crop({ x: Math.round((w - side) / 2), y: Math.round((h - side) / 4), width: side, height: side }).resize({ width: 16, height: 16, quality: 'best' }); }
+      else img = undefined;
+    }
+  } catch { img = undefined; }
+  if (trayIcons.size > 60) trayIcons.clear();
+  trayIcons.set(cover, img);
+  return img;
+}
+function trayLaunch(id) {
+  if (!mainWindow || mainWindow.isDestroyed()) { createWindow(); mainWindow.webContents.once('did-finish-load', () => setTimeout(() => sendToWindow('tray-launch', id), 1500)); return; }
+  sendToWindow('tray-launch', id);
+}
+function trayMenu() {
+  let list = [];
+  try { list = loadGames().filter((g) => !g.hidden && (g.lastPlayed || sessions.has(g.id))).sort((a, b) => (sessions.has(b.id) - sessions.has(a.id)) || (b.lastPlayed || 0) - (a.lastPlayed || 0)).slice(0, 8); } catch {}
+  const items = list.length ? [{ label: 'Недавние игры', enabled: false }, ...list.map((g) => {
+    const run = sessions.has(g.id) && !sessions.get(g.id).stopped;
+    return { label: (run ? '▶  ' : '') + String(g.name).replace(/&/g, '&&').slice(0, 60) + (run ? '  — запущена' : ''), icon: trayIcon(g.cover), enabled: !run, click: () => trayLaunch(g.id) };
+  }), { type: 'separator' }] : [];
+  return Menu.buildFromTemplate([
+    ...items,
+    { label: 'Открыть библиотеку', click: showWindow },
+    { label: 'Компактный режим', click: () => { showWindow(); sendToWindow('open-fullscreen'); } },
+    { label: 'ТВ-режим', click: () => { showWindow(); sendToWindow('open-tv'); } },
+    { type: 'separator' },
+    { label: 'Выход', click: () => { isQuitting = true; app.quit(); } },
+  ]);
+}
 function createTray() {
   let img = nativeImage.createFromPath(iconPath);
   if (img.isEmpty()) img = nativeImage.createEmpty();
   tray = new Tray(img);
   tray.setToolTip('Game Library');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Открыть библиотеку', click: showWindow },
-    { label: 'Компактный режим', click: () => { showWindow(); sendToWindow('open-fullscreen'); } },
-    { type: 'separator' },
-    { label: 'Выход', click: () => { isQuitting = true; app.quit(); } },
-  ]));
+  // Меню собирается заново при каждом открытии — чтобы недавние игры и «Запущена» были свежими
+  tray.on('right-click', () => { try { tray.popUpContextMenu(trayMenu()); } catch {} });
   tray.on('click', showWindow);
   tray.on('double-click', showWindow);
 }
@@ -810,6 +845,41 @@ ipcMain.handle('steam-playtime', async () => {
   return out;
 });
 
+// ─── Мои скриншоты и клипы игры: Steam (F12), Xbox Game Bar (Win+Alt+PrtScn), NVIDIA ShadowPlay ───
+const SHOT_EXT = /\.(png|jpe?g|webp|bmp)$/i, CLIP_EXT = /\.(mp4|webm)$/i;
+function listFiles(dir, re, max = 400) { try { return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile() && re.test(e.name)).slice(0, max).map((e) => path.join(dir, e.name)); } catch { return []; } }
+function myScreenshots(g, dirs = {}) {
+  const out = [], seen = new Set();
+  const add = (file, thumb, src) => { const k = file.toLowerCase(); if (seen.has(k)) return; seen.add(k);
+    let mt = 0; try { mt = fs.statSync(file).mtimeMs; } catch { return; }
+    out.push({ file, thumb: thumb && fs.existsSync(thumb) ? thumb : null, video: CLIP_EXT.test(file), time: mt, src }); };
+  // Steam: userdata/<аккаунт>/760/remote/<appid>/screenshots (+ thumbnails/ с тем же именем)
+  const root = dirs.steam !== undefined ? dirs.steam : steamRoot();
+  if (root && g.store === 'steam' && /^\d+$/.test(String(g.storeId || ''))) {
+    let users = []; try { users = fs.readdirSync(path.join(root, 'userdata')); } catch {}
+    for (const u of users) {
+      const d = path.join(root, 'userdata', u, '760', 'remote', String(g.storeId), 'screenshots');
+      for (const f of listFiles(d, SHOT_EXT)) add(f, path.join(d, 'thumbnails', path.basename(f)), 'steam');
+    }
+  }
+  // Xbox Game Bar: «Видео\Клипы» (Captures) — имя файла начинается с названия окна игры
+  const want = normName(g.name);
+  let videos = dirs.videos; if (videos === undefined) { try { videos = app.getPath('videos'); } catch { videos = null; } }
+  if (videos && want.length >= 3) {
+    for (const f of listFiles(path.join(videos, 'Captures'), /\.(png|jpe?g|mp4)$/i, 3000)) if (normName(path.basename(f).replace(/\.[^.]+$/, '')).startsWith(want)) add(f, null, 'gamebar');
+    // NVIDIA ShadowPlay: «Видео\<Название игры>\»
+    let sub = []; try { sub = fs.readdirSync(videos, { withFileTypes: true }).filter((e) => e.isDirectory() && normName(e.name) === want); } catch {}
+    for (const e of sub) for (const f of listFiles(path.join(videos, e.name), /\.(png|jpe?g|mp4)$/i)) add(f, null, 'nvidia');
+  }
+  return out.sort((a, b) => b.time - a.time).slice(0, 300);
+}
+ipcMain.handle('my-screenshots', (e, g = {}) => {
+  try {
+    const { pathToFileURL } = require('url');
+    return myScreenshots({ name: String(g.name || ''), store: g.store, storeId: g.storeId }).map((x) => ({ f: pathToFileURL(x.file).href, t: x.thumb ? pathToFileURL(x.thumb).href : null, v: x.video, time: x.time, src: x.src }));
+  } catch { return []; }
+});
+
 // ─── Привязка уже добавленных игр к Steam / Epic ─────────────────────────────
 // По ярлыку (.url steam://rungameid/ID, .lnk «steam.exe -applaunch ID»), по папке установки и по названию.
 const normName = (x) => String(x || '').toLowerCase().replace(/[™®©]/g, '').replace(/[^a-zа-яё0-9]+/gi, '');
@@ -1124,6 +1194,94 @@ function trackedExeName(exePath, lnkPath) {
   return path.basename(exe);
 }
 
+// ─── Слежение за запущенными играми — даже если их открыли не через программу ──
+// Steam сам пишет в реестр, какая игра сейчас запущена (HKCU\Software\Valve\Steam → RunningAppID).
+// Остальные игры ищем по имени .exe в списке процессов. Общие имена (game.exe, launcher.exe…) не берём — легко спутать.
+const GENERIC_EXE = /^(game|games|launcher|start|play|run|setup|install|unins\d*|update|updater|crashreport\w*|crashhandler\w*|unitycrashhandler\d*|ue4prereqsetup\w*|dxsetup|vc_redist\S*|python\w*|javaw?|node|cmd|explorer|steam|epicgameslauncher)\.exe$/i;
+const watch = { pending: new Map(), map: null, mapT: 0, busy: false, n: 0, burstUntil: 0 };
+function execText(cmd, args, timeout = 6000) {
+  return new Promise((resolve) => execFile(cmd, args, { timeout, windowsHide: true, encoding: 'buffer', maxBuffer: 8 << 20 }, (err, out) => {
+    if (err && !out?.length) return resolve(null);
+    let t = String(out); try { t += '\n' + new TextDecoder('ibm866').decode(out); } catch {}
+    resolve(t);
+  }));
+}
+async function steamRunningAppId() {
+  const out = await execText('reg', ['query', 'HKCU\\Software\\Valve\\Steam', '/v', 'RunningAppID']);
+  const m = String(out || '').match(/RunningAppID\s+REG_DWORD\s+0x([0-9a-f]+)/i);
+  return m ? String(parseInt(m[1], 16)) : '0';
+}
+async function runningExes() {
+  const out = await execText('tasklist', ['/NH', '/FO', 'CSV'], 8000);
+  if (!out) return null;
+  const set = new Set();
+  for (const m of out.matchAll(/^"([^"]+\.exe)"/gim)) set.add(m[1].toLowerCase());
+  return set;
+}
+function gameIndex() {
+  if (watch.map && Date.now() - watch.mapT < 120000) return watch.map;
+  const steam = new Map(), exe = new Map();
+  for (const g of loadGames()) {
+    if (g.store === 'steam' && /^\d+$/.test(String(g.storeId || ''))) { steam.set(String(g.storeId), g.id); continue; }
+    let n = null; try { n = trackedExeName(g.exePath, g.lnkPath); } catch {}
+    n = n && n.toLowerCase();
+    if (n && !GENERIC_EXE.test(n) && !exe.has(n)) exe.set(n, g.id);
+  }
+  watch.map = { steam, exe }; watch.mapT = Date.now();
+  return watch.map;
+}
+function watchStart(gameId, kind, extra = {}) {
+  if (sessions.has(gameId)) return;
+  const s = { start: Date.now(), stopped: false, watch: kind, miss: 0, ...extra };
+  sessions.set(gameId, s);
+  watch.pending.delete(gameId);
+  const games = loadGames(); const g = games.find((x) => x.id === gameId);
+  if (g) { g.lastPlayed = Date.now(); g.launched = true; saveGames(games); }
+  sendToWindow('session', { id: gameId, start: s.start });
+}
+function watchStop(gameId) {
+  const s = sessions.get(gameId); if (!s || s.stopped) return;
+  s.stopped = true; sessions.delete(gameId);
+  const minutes = Math.max(1, Math.round((Date.now() - s.start) / 60000));
+  const updated = addPlaytime(gameId, minutes, s.start);
+  sendToWindow('playtime-result', { id: gameId, minutes, tracked: true, playtime: updated?.playtime, lastPlayed: updated?.lastPlayed, days: updated?.days, sess: updated?.sess });
+  sendToWindow('session', { id: gameId, start: null });
+}
+async function watchTick() {
+  if (process.platform !== 'win32' || watch.busy) return;
+  watch.busy = true;
+  try {
+    const idx = gameIndex();
+    // Steam: какая игра запущена прямо сейчас
+    const appid = await steamRunningAppId();
+    for (const [gid, s] of sessions) if (s.watch === 'steam' && !s.stopped) { if (s.appid === appid) s.miss = 0; else if (++s.miss >= 2) watchStop(gid); }
+    const sg = appid !== '0' ? idx.steam.get(appid) : null;
+    if (sg && !sessions.has(sg)) watchStart(sg, 'steam', { appid });
+    // Остальные игры — по процессам, раз в 30 секунд (и чаще сразу после запуска из программы)
+    if (idx.exe.size && (watch.n++ % 2 === 0 || Date.now() < watch.burstUntil)) {
+      const procs = await runningExes();
+      if (procs) for (const [exe, gid] of idx.exe) {
+        const s = sessions.get(gid);
+        if (procs.has(exe)) { if (!s) watchStart(gid, 'exe', { exeName: exe }); else if (s.watch === 'exe') s.miss = 0; }
+        else if (s && s.watch === 'exe' && !s.stopped && ++s.miss >= 2) watchStop(gid);
+      }
+    }
+    // Игру Steam запустили из программы, но она так и не появилась — снимаем «запускается»
+    for (const [gid, t] of watch.pending) if (Date.now() - t > 150000) { watch.pending.delete(gid); if (!sessions.has(gid)) sendToWindow('playtime-result', { id: gid, minutes: 0, tracked: false }); }
+  } catch {} finally { watch.busy = false; }
+}
+let watchTimer = null;
+function startGameWatch() {
+  if (process.platform !== 'win32' || watchTimer) return;
+  watchTimer = setInterval(() => { watchTick(); }, 15000);
+  setTimeout(watchTick, 4000);
+}
+// Сразу после запуска из программы проверяем чаще — чтобы «Запущена» появилось быстро
+function watchBurst() {
+  watch.burstUntil = Date.now() + 120000; watch.mapT = 0;
+  let k = 0; const t = setInterval(() => { watchTick(); if (++k >= 30 || !watch.pending.size) clearInterval(t); }, 4000);
+}
+
 // Время записывается прямо в main — не теряется, даже если окно закрыто
 function addPlaytime(gameId, minutes, start = null) {
   if (!minutes || minutes < 1) return null;
@@ -1203,6 +1361,13 @@ ipcMain.handle('launch-and-track', async (e, gameId, exePath, lnkPath, launchUrl
   const games = loadGames();
   const g = games.find((x) => x.id === gameId);
   if (g) { g.lastPlayed = Date.now(); g.launched = true; g.runs = (g.runs || 0) + 1; saveGames(games); }
+
+  // Игры Steam: что запущено, Steam сообщает сам — время считает общий наблюдатель, а не поиск .exe
+  const steamId = (String(launchUrl || '').match(/^steam:\/\/rungameid\/(\d+)/i) || [])[1];
+  if (steamId && process.platform === 'win32') {
+    if (!sessions.has(gameId)) { watch.pending.set(gameId, Date.now()); watchBurst(); }
+    return { launched: true, tracked: true };
+  }
 
   const exeName = trackedExeName(exePath, lnkPath);
   if (process.platform !== 'win32' || !exeName) return { launched: true, tracked: false };
@@ -1429,7 +1594,13 @@ ipcMain.handle('save-settings', (e, settings) => {
 });
 
 // ─── Авто-данные ──────────────────────────────────────────────────────────────
-const { enrichGame, rawgSearch, steamStoreInfo, gameExtra } = require('./enricher');
+const { enrichGame, rawgSearch, steamStoreInfo, gameExtra, setSearchLog } = require('./enricher');
+// Журнал поиска игр в Steam по названию (для игр Epic, GOG и др.): %APPDATA%\Game Library\steam-search.log
+{
+  const logFile = path.join(userData, 'steam-search.log');
+  try { if (fs.statSync(logFile).size > 300e3) fs.renameSync(logFile, logFile + '.old'); } catch {}
+  setSearchLog((s) => fs.appendFile(logFile, `${new Date().toLocaleString('ru-RU')}  ${s}\n`, () => {}));
+}
 const ai = require('./ai');
 
 ipcMain.handle('test-ai', async (e, aiSettings) => ai.testProvider(aiSettings));

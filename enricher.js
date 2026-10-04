@@ -130,11 +130,15 @@ async function addPlaytimes(out, name, year, rawgKey, rawgTop = null) {
 }
 async function gameExtra({ appid = null, name = null, year = null, rawgKey = '' } = {}) {
   let id = appid && /^\d+$/.test(String(appid)) ? String(appid) : null;
-  if (!id && name) id = await steamFindApp(name).catch(() => null);
+  if (!id && name) {
+    const f = await steamFindApp(name).catch(() => undefined);
+    if (f === undefined) return { error: 'steam-busy' };   // Steam не ответил — повторим позже, не подставляя английский текст из RAWG
+    id = f;
+  }
   if (id) {
     const d = await steamDetails(id);
     if (d) {
-      const out = { v: 2, from: 'steam', appid: id, t: Date.now() };
+      const out = { v: 4, from: 'steam', appid: id, t: Date.now() };
       out.about = steamHtmlToRich(d.about_the_game || d.detailed_description || '') || null;
       if (d.metacritic?.score) out.mc = { score: d.metacritic.score, url: /^https:\/\/www\.metacritic\.com\//.test(d.metacritic.url || '') ? d.metacritic.url : null };
       const rv = await fetchJson(`https://store.steampowered.com/appreviews/${id}?json=1&language=all&purchase_type=all&num_per_page=0&filter=summary`).catch(() => null);
@@ -161,23 +165,72 @@ async function gameExtra({ appid = null, name = null, year = null, rawgKey = '' 
     const want = normTitle(name);
     const top = (r?.results || []).find((x) => normTitle(x.name) === want);
     if (top) {
-      const out = { v: 2, from: 'rawg', t: Date.now() };
+      const out = { v: 4, from: 'rawg', t: Date.now() };
       if (top.metacritic) out.mc = { score: top.metacritic, url: null };
       if (top.ratings_count > 20 && top.rating) out.rawgRating = { r: top.rating, n: top.ratings_count };
       out.shots = (top.short_screenshots || []).slice(1, 13).map((x) => ({ t: x.image, f: x.image })).filter((x) => /^https:\/\//.test(x.f || ''));
       return addPlaytimes(out, name, year, rawgKey, top);
     }
   }
-  return name ? addPlaytimes({ v: 2, from: null, t: Date.now() }, name, year, '') : { v: 2, from: null, t: Date.now() };
+  return name ? addPlaytimes({ v: 4, from: null, t: Date.now() }, name, year, '') : { v: 4, from: null, t: Date.now() };
 }
 const normTitle = (n) => String(n || '').toLowerCase().replace(/[™®©]/g, '').replace(/&/g, 'and').replace(/[^a-zа-яё0-9]+/gi, '');
+// Поиск игры в Steam по названию (для игр Epic, GOG и т.д.).
+// Steam часто отвечает «слишком много запросов» (429) — тогда ждём и пробуем ещё. Возвращает id, null (такой игры нет)
+// или undefined (Steam не ответил — проверим позже, а не будем считать, что игры в Steam нет).
+const sleep = (ms) => new Promise((r) => setTimeout(r, process.env.GL_FAST ? 5 : ms));
+// Журнал поиска (main.js пишет его в steam-search.log рядом с библиотекой) — чтобы понять, почему игра не нашлась
+let searchLog = null;
+const setSearchLog = (fn) => { searchLog = typeof fn === 'function' ? fn : null; };
+const slog = (s) => { try { searchLog?.(s); } catch {} };
+// Ответ: массив { id, name, type } — Steam ответил; null — не ответил (лимит запросов, сбой сети, страница вместо JSON)
+async function steamSearch(term, l, cc) {
+  for (let a = 0; a < 3; a++) {
+    const r = await fetchJson(`https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(term)}&l=${l}${cc ? '&cc=' + cc : ''}`).catch(() => ({ status: 0 }));
+    slog(`storesearch ${cc || '-'} «${term}» → ${r.status}${r.body?.items ? ' ' + r.body.items.length : ''}`);
+    if (r.status === 200 && r.body && typeof r.body === 'object') return Array.isArray(r.body.items) ? r.body.items : [];
+    if (r.status === 404) return [];
+    await sleep(2500 * (a + 1));
+  }
+  return null;
+}
+// Поиск сообщества Steam: другой сервер (свой лимит запросов) и не скрывает игры, которые не продаются в регионе
+async function communitySearch(term) {
+  for (let a = 0; a < 2; a++) {
+    const r = await fetchJson(`https://steamcommunity.com/actions/SearchApps/${encodeURIComponent(term)}`).catch(() => ({ status: 0 }));
+    slog(`community «${term}» → ${r.status}${Array.isArray(r.body) ? ' ' + r.body.length : ''}`);
+    if (r.status === 200 && Array.isArray(r.body)) return r.body.map((x) => ({ id: x.appid, name: x.name, type: 'app' }));
+    if (r.status === 404) return [];
+    await sleep(2000 * (a + 1));
+  }
+  return null;
+}
+const EDITION = /\s*[:\-–—]?\s*\b(game of the year|goty|definitive|enhanced|complete|remastered|deluxe|ultimate|anniversary|gold|standard|director'?s cut)( edition)?\s*$/i;
+const looseTitle = (n) => normTitle(String(n || '').replace(/[™®©]/g, '').replace(EDITION, '')).replace(/^the/, '');
+function pickApp(items, want) {
+  const w = normTitle(want), wl = looseTitle(want);
+  return items.find((x) => normTitle(x.name) === w)
+    || (wl.length > 5 ? items.find((x) => x.type === 'app' && looseTitle(x.name) === wl) : null);
+}
+// Ищем по очереди: магазин (регион RU) → сообщество Steam → магазин (регион US). В России часть игр
+// в магазине скрыта — поиск с регионом RU их «не видит», хотя страница игры и русское описание есть.
 async function steamFindApp(name) {
   if (!name) return null;
-  const r = await fetchJson(`https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(name)}&l=russian&cc=RU`);
-  const items = r.body?.items || [];
-  const want = normTitle(name);
-  const hit = items.find((x) => normTitle(x.name) === want) || items.find((x) => x.type === 'app' && want.length > 5 && normTitle(x.name).replace(/^the/, '') === want.replace(/^the/, ''));
-  return hit ? String(hit.id) : null;
+  const clean = String(name).replace(/[™®©]/g, '').replace(/\s+/g, ' ').trim();
+  const variants = [...new Set([clean, clean.replace(EDITION, '').trim()])].filter(Boolean);
+  const sources = [(v) => steamSearch(v, 'russian', 'RU'), (v) => communitySearch(v), (v) => steamSearch(v, 'english', 'US')];
+  let answered = false;
+  for (const v of variants) {
+    for (const src of sources) {
+      const items = await src(v);
+      if (items === null) continue;
+      answered = true;
+      const hit = pickApp(items, clean) || pickApp(items, v);
+      if (hit) { slog(`  найдено: «${name}» → ${hit.id} «${hit.name}»`); return String(hit.id); }
+    }
+  }
+  slog(`  ${answered ? 'нет в Steam' : 'Steam не ответил'}: «${name}»`);
+  return answered ? null : undefined;
 }
 // Данные игры из магазина Steam на русском. appid не известен — ищем по точному названию.
 async function steamStoreInfo({ appid = null, name = null } = {}) {
@@ -449,4 +502,4 @@ async function enrichGame(gameName, gameId, coversDir, opts = {}) {
   return result;
 }
 
-module.exports = { gameExtra, enrichGame, rawgSearch, translateGenre, steamStoreInfo, steamHtmlToText, steamAssetUrls };
+module.exports = { setSearchLog, gameExtra, enrichGame, rawgSearch, translateGenre, steamStoreInfo, steamHtmlToText, steamAssetUrls };

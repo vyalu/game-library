@@ -15,15 +15,23 @@ async function init() {
   refreshKeyHints();
   render();
 
-  linkStores().then(() => autoStoreSync()).then(refreshExists).then(() => setTimeout(() => steamFixSync().then(ruDescSync).then(extraSync), 3000));
-  setInterval(() => autoStoreSync().then(refreshExists), 10 * 60 * 1000);
+  if ((settings.ruRetryV || 0) < 2) {   // поиск в Steam раньше мог сорваться (лимит запросов, игры скрыты в регионе RU) — даём описаниям ещё попытку
+    const redo = games.filter((g) => (g.ruTried && g.description && !HAS_RU.test(g.description) && !g.descUser) || (g.extraTries && storeOf(g) !== 'steam'));
+    redo.forEach((g) => { g.ruTried = 0; g.extraTries = 0; });
+    if (redo.length) api.saveGamesBulk(redo).catch(() => {});
+    settings.ruRetryV = 2; saveSettingsQuiet();
+  }
+  linkStores().then(() => autoStoreSync()).then(refreshExists).then(() => setTimeout(() => steamFixSync().then(ruDescSync).then(extraSync).then(ruDescSync), 3000));
+  setInterval(() => autoStoreSync().then(refreshExists).then(() => syncSteamTime()).catch(() => {}), 10 * 60 * 1000);
   // При возврате в окно — не чаще раза в минуту (большая библиотека иначе тормозит на каждом Alt+Tab)
   addEventListener('focus', () => { clearTimeout(refreshExists.t); if (Date.now() - (refreshExists.last || 0) < 60000) return;
-    refreshExists.t = setTimeout(() => { refreshExists.last = Date.now(); autoStoreSync().then(refreshExists); }, 800); });
+    refreshExists.t = setTimeout(() => { refreshExists.last = Date.now(); autoStoreSync().then(refreshExists).then(() => syncSteamTime()).catch(() => {}); }, 800); });
   api.storeIcons?.().then((r) => { Object.assign(STORE_ICONS, r || {}); if (Object.keys(STORE_ICONS).length) render(); }).catch(() => {});
   api.onUpdateStatus(handleUpdate);
   api.getUpdateInfo().then((i) => { updateInfo = i; if (i.state) handleUpdate(i.state); });
   api.onOpenFullscreen(() => openBig());
+  api.onOpenTv?.(() => switchMode('bp'));
+  api.onTrayLaunch?.((id) => { if (byId(id)) launch(id); });
   api.onSession(({ id, start }) => {
     if (start) running.set(id, start); else running.delete(id);
     render();
@@ -35,6 +43,7 @@ async function init() {
     g.lastPlayed = data.lastPlayed || Date.now();
     if (data.days) g.days = data.days;
     if (data.sess) g.sess = data.sess;
+    MYSHOTS.delete(data.id);   // после игры могли появиться новые скриншоты
     running.delete(data.id);
     render();
     sfx('success');

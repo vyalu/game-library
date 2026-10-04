@@ -49,6 +49,7 @@ const log = (...a) => window.__calls.push(a);
   });
 })();
 window.api = {
+  myScreenshots: async (g) => g.name === 'Hades II' ? [['hero', false, 1], ['wide', false, 2], ['bg3', false, 30], ['logo', true, 40]].map(([n, v, d]) => ({ f: 'tests/mock/covers/' + n + '.png', t: v ? null : 'tests/mock/covers/' + n + '.png', v, time: Date.now() - d * 864e5, src: 'steam' })) : [],
   gameExtra: async (g) => { await new Promise(r=>setTimeout(r,300)); const c=['tests/mock/covers/hero.png','tests/mock/covers/wide.png','tests/mock/covers/bg3.png','tests/mock/covers/eldenring.png','tests/mock/covers/cp2077.png','tests/mock/covers/hades2.png'];
     return { v:2, from:'steam', hltb: { id: 1, name: g.name, main: 21.5, plus: 39, full: 64 }, t:Date.now(), about: window.__about || null, mc:{score:88}, rev:{pct:96,total:52340,desc:'Очень положительные'}, ru:{ui:true,voice:false}, ctrl:'full', ach:63,
     cats:[{id:2,n:'Для одного игрока'},{id:23,n:'Облако Steam'},{id:41,n:'Remote Play на телевизоре'},{id:22,n:'Достижения Steam'}],

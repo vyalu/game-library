@@ -21,6 +21,7 @@ function renderSideTop() {
       ${extra ? `<button class="chip on" data-act="filter-menu" data-nav>${esc(filterName(S.filter))}<i class="ph ph-x" data-act="filter" data-arg="all" title="Сбросить"></i></button>` : ''}
       <button class="chip chip-add" data-act="open-cats" title="Свои списки и порядок вкладок" data-nav><i class="ph ph-plus"></i></button>
     </div>
+    ${(() => { const t = listHoursText(S.filter, list); return t ? `<div class="list-hours" title="${esc(listHoursTitle(list))}"><i class="ph ph-hourglass-medium"></i>${list.filter((g) => !g.completed).length} ${plural(list.filter((g) => !g.completed).length, 'игра', 'игры', 'игр')} · ${esc(t)}</div>` : ''; })()}
     ${(() => { const n = games.filter(isMissing).length; return n && !S.missDismissed ? `<div class="miss-bar"><i class="ph ph-warning-circle"></i><span class="grow" title="Игры из библиотеки, которых больше нет на компьютере">Нет на компьютере: ${n}</span>
       <button class="btn btn-ghost" data-act="check-games" data-nav>Разобраться</button><button class="btn btn-ghost btn-icon" data-act="miss-dismiss" title="Скрыть" data-nav><i class="ph ph-x"></i></button></div>` : ''; })()}`;
 }
@@ -63,6 +64,9 @@ function descBlocks(text) {
       else if (s.mk === 'vid') { const [u, po] = s.t.split('|'); if (/^https:\/\//.test(u)) out.push({ k: 'vid', u, po: /^https:\/\//.test(po || '') ? po : '' }); }
       continue;
     }
+    const md = s.t.match(/^#{1,4}\s*(.+?)\s*#*$/);   // разметка RAWG: ###Gameplay
+    if (md) { flushPara(); flushList(); out.push({ k: 'h', t: md[1].replace(/\*\*/g, '') }); continue; }
+    s.t = s.t.replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1');
     const r = parseReview(s.t);
     if (r) { flushPara(); flushList(); reviews.push(r); continue; }
     if (/^\*/.test(s.t) && /metacritic|рейтинг|оценк|score|rating/i.test(s.t)) { notes.push(s.t.replace(/^\*+\s*/, '')); continue; }
@@ -118,8 +122,9 @@ function descHTML(g) {
   </div>`;
 }
 // ─── Подробности игры: отзывы, Metacritic, скриншоты, трейлеры ──────────────
-const EXTRA = { p: new Map(), busy: false };
-const needExtra = (g) => !!g && (!g.extra || !g.extra.t || (g.extra.v || 0) < 2) && (g.extraTries || 0) < 3;
+const EXTRA = { p: new Map(), busy: false, busyTry: new Map(), busyUntil: 0 };
+// v4: игры не из Steam перепроверяем — раньше поиск в Steam мог «не найти» игру (лимит запросов, игры скрыты в регионе RU)
+const needExtra = (g) => !!g && (!g.extra || !g.extra.t || (g.extra.v || 0) < 2 || (g.extra.from !== 'steam' && (g.extra.v || 0) < 4)) && (g.extraTries || 0) < 3 && (EXTRA.busyTry.get(g.id) || 0) < 3;
 function loadExtra(id) {
   if (!api.gameExtra) return Promise.resolve(null);
   if (EXTRA.p.has(id)) return EXTRA.p.get(id);
@@ -128,6 +133,7 @@ function loadExtra(id) {
     const r = await api.gameExtra({ name: g.name, year: g.year || null, steamAppId: storeOf(g) === 'steam' && /^\d+$/.test(String(g.storeId || '')) ? g.storeId : null }).catch(() => null);
     const cur = byId(id); if (!cur) return null;
     if (r && !r.error && r.v) { cur.extra = r; cur.extraTries = 0; }
+    else if (r?.error === 'steam-busy') { EXTRA.busyTry.set(id, (EXTRA.busyTry.get(id) || 0) + 1); EXTRA.busyUntil = Date.now() + 90e3; return cur.extra; }   // Steam попросил подождать — не считаем это неудачей
     else cur.extraTries = (cur.extraTries || 0) + 1;
     await saveGame(cur);
     const shown = (selGame()?.id === id && !S.big.open) || S.big.page === id;
@@ -145,8 +151,9 @@ async function extraSync() {
   try {
     for (const g0 of games.filter(needExtra)) {
       if (!byId(g0.id) || !needExtra(byId(g0.id))) continue;
+      if (EXTRA.busyUntil > Date.now()) await new Promise((res) => setTimeout(res, EXTRA.busyUntil - Date.now()));   // Steam просил подождать
       await loadExtra(g0.id);
-      await new Promise((res) => setTimeout(res, 1500));   // магазин Steam не любит частые запросы
+      await new Promise((res) => setTimeout(res, 2000));   // магазин Steam не любит частые запросы
     }
   } finally { EXTRA.busy = false; }
 }
@@ -199,6 +206,51 @@ function playtimeBadge(g, x) {
   return `<div class="gx-b gx-hltb" title="${h ? 'Сколько проходить — по данным HowLongToBeat' : 'Сколько в среднем играют — по данным RAWG'}"><i class="ph ph-hourglass-medium"></i>
     <div class="gx-ht"><div class="gx-hr">${parts.map(([l, v]) => `<span><b>${esc(fmtH(v))}</b>${esc(l)}</span>`).join('')}</div>${you}</div></div>`;
 }
+// Сколько проходить весь список (свои списки вроде «Поиграть потом»): сумма «сюжета» непройденных игр
+function listHours(list) {
+  let sum = 0, have = 0, left = 0;
+  for (const g of list) {
+    if (g.completed) continue;
+    left++;
+    const h = g.extra?.hltb ? (g.extra.hltb.main || g.extra.hltb.plus || g.extra.hltb.full) : g.extra?.avgPlay?.h;
+    if (h > 0) { sum += h; have++; }
+  }
+  return { sum: Math.round(sum), have, left };
+}
+function listHoursText(key, list) {
+  if (!String(key || '').startsWith('cat:')) return '';
+  const r = listHours(list); if (!r.sum) return '';
+  return `≈ ${r.sum.toLocaleString('ru-RU')} ч на прохождение`;
+}
+function listHoursTitle(list) { const r = listHours(list); return `Сумма «сюжета» по HowLongToBeat для непройденных игр списка${r.have < r.left ? ` (данные есть у ${r.have} из ${r.left})` : ''}`; }
+// ─── Мои скриншоты и клипы (Steam F12, Xbox Game Bar, NVIDIA) ─────────────────
+const MYSHOTS = new Map();   // id игры → { t, list } | промис загрузки
+function wantMyShots(g) {
+  if (!api.myScreenshots || !g) return null;
+  const c = MYSHOTS.get(g.id);
+  if (c && !(c instanceof Promise) && Date.now() - c.t < 5 * 60e3) return c.list;
+  if (!(c instanceof Promise)) {
+    const pr = api.myScreenshots({ name: g.name, store: storeOf(g), storeId: g.storeId }).catch(() => []).then((list) => {
+      MYSHOTS.set(g.id, { t: Date.now(), list: Array.isArray(list) ? list : [] });
+      if (list?.length && ((selGame()?.id === g.id && !S.big.open) || S.big.page === g.id)) render();
+    });
+    MYSHOTS.set(g.id, pr);
+  }
+  return c && !(c instanceof Promise) ? c.list : null;
+}
+const shotDate = (t) => new Date(t).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: new Date(t).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+function myShotsHTML(g) {
+  const list = wantMyShots(g); if (!list?.length) return '';
+  const n = list.filter((x) => !x.v).length, v = list.length - n;
+  return `<div class="gx-mine"><div class="gx-mh"><i class="ph ph-camera"></i>Мои скриншоты<span>${[n && `${n} ${plural(n, 'снимок', 'снимка', 'снимков')}`, v && `${v} ${plural(v, 'клип', 'клипа', 'клипов')}`].filter(Boolean).join(' · ')}</span></div>
+    <div class="gx-mwrap at-start"><button class="gx-arr l" data-act="gx-scroll" data-arg="-1" tabindex="-1"><i class="ph-bold ph-caret-left"></i></button>
+    <div class="gx-media">${list.map((x, i) => `<button class="gx-th mine${x.v ? ' vid' : ''}" data-act="lb-my" data-id="${esc(g.id)}" data-arg="${i}" title="${esc(shotDate(x.time))}" data-nav>${x.t || !x.v ? `<img src="${esc(x.t || x.f)}" alt="" loading="lazy" decoding="async" draggable="false">` : '<span class="gx-vph"></span>'}${x.v ? '<i class="ph-fill ph-play"></i>' : ''}<em>${esc(shotDate(x.time))}</em></button>`).join('')}</div>
+    <button class="gx-arr r" data-act="gx-scroll" data-arg="1" tabindex="-1"><i class="ph-bold ph-caret-right"></i></button></div></div>`;
+}
+function lbMy(id, i) {
+  const c = MYSHOTS.get(id); if (!c || c instanceof Promise) return;
+  lbOpen(c.list.map((x) => (x.v ? { v: x.f, t: x.t, n: 'Мой клип · ' + shotDate(x.time) } : { f: x.f, t: x.t, d: shotDate(x.time) })), i);
+}
 // Просмотр скриншотов и трейлеров во весь экран: ←/→, LB/RB, A — пауза, B/Esc — закрыть
 function lbOpen(items, i = 0) {
   if (!items.length) return;
@@ -213,7 +265,7 @@ function lbDraw() {
   const it = L.items[L.i];
   box.innerHTML = `<div class="lb-stage">${it.v ? `<video class="lb-media" src="${esc(it.v)}" ${it.t ? `poster="${esc(it.t)}"` : ''} controls autoplay playsinline></video>` : `<img class="lb-media" src="${esc(it.f)}" alt="" draggable="false">`}</div>
     ${L.items.length > 1 ? `<button class="lb-nav lb-p" data-lb="p" ${L.i ? '' : 'disabled'}><i class="ph ph-caret-left"></i></button><button class="lb-nav lb-n" data-lb="n" ${L.i < L.items.length - 1 ? '' : 'disabled'}><i class="ph ph-caret-right"></i></button>` : ''}
-    <div class="lb-top"><span>${it.v ? esc(it.n || 'Трейлер') : 'Скриншот'} · ${L.i + 1} из ${L.items.length}</span><button class="lb-x" data-lb="x" title="Закрыть (Esc / B)"><i class="ph ph-x"></i></button></div>
+    <div class="lb-top"><span>${it.v ? esc(it.n || 'Трейлер') : it.d ? 'Мой скриншот · ' + esc(it.d) : 'Скриншот'} · ${L.i + 1} из ${L.items.length}</span><button class="lb-x" data-lb="x" title="Закрыть (Esc / B)"><i class="ph ph-x"></i></button></div>
     ${L.items.length > 1 ? `<div class="lb-strip">${L.items.map((m, j) => `<button class="${j === L.i ? 'on' : ''}${m.v ? ' vid' : ''}" data-lb="${j}"><img src="${esc(m.t || m.f)}" alt="" loading="lazy" draggable="false">${m.v ? '<i class="ph-fill ph-play"></i>' : ''}</button>`).join('')}</div>` : ''}
     <div class="lb-hint">${keyCap('lb')}${keyCap('rb')} листать · ${it.v ? keyCap('a') + ' пауза · ' : ''}${keyCap('b')} закрыть</div>`;
   const on = box.querySelector('.lb-strip .on'); if (on) { const st = on.parentElement; st.scrollTo({ left: on.offsetLeft - st.clientWidth / 2 + on.offsetWidth / 2, behavior: 'smooth' }); }
@@ -267,7 +319,9 @@ function renderSideFoot() {
       <button class="btn btn-secondary" data-act="sel-exit" data-nav>Готово</button></div>`;
     return;
   }
-  $('#sb-foot').innerHTML = `<span class="sb-total">${vis.length} ${plural(vis.length, 'игра', 'игры', 'игр')} · ${esc(playLabel(total))} всего</span>
+  const tdy = typeof todayMinutes === 'function' ? todayMinutes() : 0;
+  const allTxt = `${vis.length} ${plural(vis.length, 'игра', 'игры', 'игр')} · ${playLabel(total)} всего`;
+  $('#sb-foot').innerHTML = `<span class="sb-total" ${tdy ? `data-act="open-stats-today" title="${esc(allTxt)} · нажмите — статистика за сегодня" style="cursor:pointer"` : ''}>${tdy ? `Сегодня <b>${esc(exactTime(tdy))}</b>` : esc(allTxt)}</span>
     <button class="btn btn-ghost btn-icon sb-ico" data-act="open-stats" title="Статистика" data-nav><i class="ph ph-chart-bar"></i></button>
     <button class="btn btn-ghost btn-icon sb-ico" data-act="scan-folder" title="Сканировать папку" data-nav><i class="ph ph-folder-open"></i></button>
     <button class="btn btn-ghost btn-icon sb-ico" data-act="add-game" title="Добавить игру" data-nav><i class="ph ph-plus"></i></button>
@@ -381,6 +435,7 @@ function renderDetail() {
       <div class="d-left">
         <div class="d-stats">${stats.map(([l, v]) => `<div><div class="stat-l">${esc(l)}</div><div class="stat-v">${esc(v)}</div></div>`).join('')}</div>
         ${settings.showActivity === false ? '' : activityHTML(g)}
+        ${notesHTML(g)}
       </div>
       <div class="d-right">
         ${facts.map(([l, v]) => `<div class="fact"><span>${esc(l)}</span><span>${l === 'Источник' ? `<span class="fact-src">${srcIconHTML(g, 'lsrc')}${esc(v)}</span>` : esc(v)}</span></div>`).join('')}
@@ -390,6 +445,7 @@ function renderDetail() {
       <div class="about d-about">
         <div class="about-t">Об игре</div>
         ${extraHTML(g)}
+        ${myShotsHTML(g)}
         ${descSource(g) ? descHTML(g) : '<p>Описание ещё не загружено. Нажмите «Обновить обложку и описание» — программа найдёт обложку, описание и жанры.</p>'}
         ${(g.tags || []).length ? `<div class="user-tags">${g.tags.map((t) => `<span class="tag tag-outline" data-act="filter" data-arg="tag:${esc(t.toLowerCase())}" data-label="${esc(t)}">#${esc(t)}</span>`).join('')}</div>` : ''}
       </div>
@@ -407,7 +463,24 @@ function renderDetail() {
   gxEdgesAll();
 }
 
+// Заметки к игре: поле не теряет фокус и набранный текст, даже если экран перерисовался (сессия закончилась и т.п.)
+function notesSnap() { const a = document.activeElement; return a?.classList?.contains('notes-ta') ? { id: a.dataset.id, v: a.value, s: a.selectionStart, e: a.selectionEnd, sc: a.scrollTop } : null; }
+function notesRestore(k) {
+  if (!k) return; const t = document.querySelector(`.notes-ta[data-id="${CSS.escape(k.id)}"]`);
+  if (!t || t === document.activeElement) return;
+  t.value = k.v; t.focus({ preventScroll: true }); try { t.setSelectionRange(k.s, k.e); } catch {} t.scrollTop = k.sc;
+}
+const NOTES = { t: null, id: null };
+function notesSave(id, v, now = false) {
+  clearTimeout(NOTES.t); NOTES.id = id;
+  const run = async () => { NOTES.id = null; const g = byId(id); if (!g) return; const val = String(v).slice(0, 5000); if ((g.notes || '') === val) return;
+    g.notes = val; await saveGame(g);
+    document.querySelectorAll(`.notes-st[data-for="${CSS.escape(id)}"]`).forEach((s) => { s.textContent = 'сохранено'; s.classList.add('on'); clearTimeout(s._t); s._t = setTimeout(() => s.classList.remove('on'), 1600); }); };
+  if (now) run(); else NOTES.t = setTimeout(run, 700);
+}
+function notesHTML(g) { return `<div class="notes"><div class="notes-h"><i class="ph ph-note-pencil"></i>Мои заметки<span class="notes-st" data-for="${esc(g.id)}"></span></div><textarea class="notes-ta" data-id="${esc(g.id)}" maxlength="5000" spellcheck="true" placeholder="Где остановился, что не забыть, коды, советы…" data-nav>${esc(g.notes || '')}</textarea></div>`; }
 function render() {
+  const nk = notesSnap();
   setTimeout(gxEdgesAll, 0);
   renderSideTop();
   renderList();
@@ -418,6 +491,7 @@ function render() {
   if (S.pal.open) renderPal();
   tickRunning();
   gpRefocus();
+  notesRestore(nk);
 }
 function select(id, { scroll = false } = {}) {
   if (!byId(id)) return;
@@ -660,7 +734,17 @@ async function syncSteamTime(manual = false) {
     if (storeOf(g) !== 'steam' || !g.storeId || !t[g.storeId]) continue;
     const { minutes, lastPlayed } = t[g.storeId];
     let ch = false;
-    if (minutes > (g.playtime || 0)) { g.playtime = minutes; g.steamMinutes = minutes; ch = true; }
+    if (minutes > (g.playtime || 0)) {
+      // Steam насчитал больше, чем программа видела (играли не отсюда) — разницу пишем в день последнего запуска,
+      // чтобы она попала в график и статистику. При первом импорте (старые годы игры) — не пишем.
+      const delta = minutes - (g.playtime || 0);
+      if (g.steamMinutes != null && delta > 0 && delta <= 20 * 60 && !running.has(g.id)) {
+        const k = dayKey(new Date(lastPlayed || Date.now()));
+        g.days = { ...(g.days || {}) }; g.days[k] = (g.days[k] || 0) + delta;
+      }
+      g.playtime = minutes; ch = true;
+    }
+    if (minutes && g.steamMinutes !== minutes) { g.steamMinutes = minutes; ch = true; }
     if (lastPlayed > (g.lastPlayed || 0)) { g.lastPlayed = lastPlayed; ch = true; }
     if ((minutes || lastPlayed) && !g.launched) { g.launched = true; ch = true; }
     if (ch) changed.push(g);

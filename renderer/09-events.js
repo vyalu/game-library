@@ -2,7 +2,7 @@
 // ─── Делегирование кликов ────────────────────────────────────────────────────
 const QUIET = new Set(['row', 'play', 'fav', 'done', 'win-min', 'win-max', 'win-close', 'big-open', 'big-play', 'big-fav', 'big-tab',
   'big-sort', 'big-view', 'tile-set', 'big-exit', 'big-info', 'big-sheet', 'big-sheet-run', 'big-sheet-close', 'big-tile-play', 'big-tile-more', 'big-home', 'big-recent', 'big-back', 'big-page-act', 'open-pal', 'pal-run', 'pal-close',
-  'open-big', 'set-mode', 'bp-tile', 'bp-menu', 'bp-menu-close', 'bp-menu-run', 'desc-toggle', 'toggle-fs', 'toggle-pop', 'close-pop', 'game-menu', 'lib-menu', 'filter-menu', 'toggle-theme', 'pop-toggle', 'dlg-close', 'lb', 'lb-img', 'gx-scroll']);
+  'open-big', 'set-mode', 'bp-tile', 'bp-menu', 'bp-menu-close', 'bp-menu-run', 'desc-toggle', 'toggle-fs', 'toggle-pop', 'close-pop', 'game-menu', 'lib-menu', 'filter-menu', 'toggle-theme', 'pop-toggle', 'dlg-close', 'lb', 'lb-img', 'lb-my', 'gx-scroll']);
 let lastRowClick = { id: null, t: 0 };
 document.addEventListener('click', (e) => {
   const a = e.target.closest('[data-url]');
@@ -24,7 +24,9 @@ document.addEventListener('click', (e) => {
     case 'filter': e.stopPropagation(); if (S.selMode) S.selected.clear(); closeDlg(); sfx('tab'); return setFilter(arg, el.dataset.label);
     case 'filter-menu': return menuAt(el, filterMenuItems(), 'left');
     case 'lb': return lbFromGame(id, +arg);
+    case 'lb-my': return lbMy(id, +arg);
     case 'open-stats': return statsDlg();
+    case 'open-stats-today': ST.per = 'today'; return statsDlg();
     case 'st-game': { closeDlg(); if (S.big.open) return openPage(id); if (S.filter !== 'all' && !filterList(S.filter).some((g) => g.id === id)) setFilter('all'); return select(id, { scroll: true }); }
     case 'gx-scroll': { const st = el.parentElement.querySelector('.gx-media'); if (st) st.scrollBy({ left: +arg * st.clientWidth * 0.8, behavior: 'smooth' }); return; }
     case 'lb-img': return lbOpen([{ f: arg }], 0);
@@ -151,6 +153,8 @@ document.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   openMenu(e.clientX, e.clientY, gameMenuItems(g));
 });
+document.addEventListener('input', (e) => { if (e.target?.classList?.contains('notes-ta')) notesSave(e.target.dataset.id, e.target.value); });
+document.addEventListener('focusout', (e) => { if (e.target?.classList?.contains('notes-ta') && NOTES.id === e.target.dataset.id) notesSave(e.target.dataset.id, e.target.value, true); });
 document.addEventListener('input', (e) => {
   if (e.target.id === 'tile-size') { settings.tile = { ...tileView(), size: +e.target.value }; const g = $('#bgrid .bgrid'); if (g) g.setAttribute('style', tileGridStyle()); clearTimeout(setTile.t); setTile.t = setTimeout(saveSettingsQuiet, 400); return; }
   if (e.target.id === 'pal-q') { S.pal.q = e.target.value; S.pal.i = 0; renderPalRes(); }
@@ -177,6 +181,8 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (ctrl && (low === 'k' || low === 'л' || low === 'f' || low === 'а')) { e.preventDefault(); return S.pal.open ? closePal() : openPal(); }
+  // Пишем заметку — горячие клавиши (F, I, Q, E, Enter…) не срабатывают; Esc — выйти из поля
+  if (e.target?.classList?.contains('notes-ta')) { if (k === 'Escape') { e.preventDefault(); e.target.blur(); } return; }
   if (S.pal.open) {
     // Начали печатать на настоящей клавиатуре — экранная больше не нужна
     if (S.pal.osk && (k.length === 1 || k === 'Backspace')) { S.pal.osk = null; $('#pal .osk')?.remove(); renderPalFoot(); renderPalRes(); const inp = $('#pal-q'); inp?.focus(); return; }

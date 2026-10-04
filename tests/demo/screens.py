@@ -9,6 +9,8 @@ sys.path.insert(0, os.path.join(ROOT, 'tests'))
 from make_stand import build
 OUT = os.path.join(ROOT, 'docs', 'screenshots'); os.makedirs(OUT, exist_ok=True)
 LIB = open(os.path.join(HERE, 'library.js'), encoding='utf-8').read()
+import json
+VER = json.load(open(os.path.join(ROOT, 'package.json'), encoding='utf-8'))['version']
 
 # Превращаем DEMO в игры программы: магазины, история по дням, сессии, подробности Steam, время прохождения
 SETUP = r"""
@@ -44,8 +46,8 @@ async () => {
   settings.tabs = ['all', 'fav', 'cat:party', 'cat:later', 'cat:cozy', 'new'];
   settings.tile = { size: 190, cols: 0, shape: 'portrait', info: 'full' }; settings.autoStores = false; S.missDismissed = true; exists.clear?.();
   S.selId = 'ashfall'; S.filter = 'all';
-  api.getAppVersion = async () => '1.15.1'; api.getUpdateInfo = async () => ({ version: '1.15.1', packaged: true, feed: { configured: false, reason: 'placeholder' }, state: null });
-  document.getElementById('ver').textContent = 'v1.15.1';
+  api.getAppVersion = async () => '__VER__'; api.getUpdateInfo = async () => ({ version: '__VER__', packaged: true, feed: { configured: false, reason: 'placeholder' }, state: null });
+  document.getElementById('ver').textContent = 'v__VER__';
   render();
   document.getElementById('toast').classList.remove('show');
 }
@@ -64,7 +66,7 @@ def shot(pg, name, clip=None):
 def prepare(pg):
     pg.goto(build()); pg.wait_for_timeout(2500)
     pg.evaluate("() => { " + LIB + " }")
-    pg.evaluate(SETUP); pg.wait_for_timeout(1200)
+    pg.evaluate(SETUP.replace('__VER__', VER)); pg.wait_for_timeout(1200)
     pg.evaluate("Promise.all([...document.images].map(i => i.decode().catch(() => {})))"); pg.wait_for_timeout(500)
 
 def screenshots(p):

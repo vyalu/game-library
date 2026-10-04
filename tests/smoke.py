@@ -137,9 +137,51 @@ def t_stats(pg):
         ev(pg, f"document.querySelectorAll('#dlg [data-st-per]')[{i}]?.click()", 200)
     assert ev(pg, "document.querySelectorAll('#dlg .st-kpi').length") >= 3, 'нет итогов'
 
+def t_steam_days(pg):
+    r = pg.evaluate("""async () => { const g = games.find(x => x.playtime) ; const bak = JSON.stringify(g);
+      Object.assign(g, { store: 'steam', storeId: '268910', playtime: 700, steamMinutes: 650, days: {} });
+      await syncSteamTime(); const out = [g.playtime, Object.values(g.days || {})]; Object.assign(g, JSON.parse(bak)); return out; }""")
+    assert r == [754, [54]], f'время из Steam не попало в дни: {r}'
+
+def t_today(pg):
+    pg.evaluate("() => { const g = games.find(x => x.name === 'Hades II'); running.set(g.id, Date.now() - 40 * 60000); render(); }"); pg.wait_for_timeout(300)
+    assert 'сегодня' in ev(pg, "document.querySelector('#sb-foot .sb-total').textContent").lower(), 'внизу списка нет «сегодня»'
+    ev(pg, "document.querySelector('#sb-foot [data-act=\"open-stats-today\"]').click()", 500)
+    assert ev(pg, "ST.per") == 'today', 'клик по «сегодня» не открыл статистику за сегодня'
+    assert ev(pg, "document.querySelectorAll('#dlg .tl-seg.live').length") >= 1, 'нет идущей сессии на ленте'
+    assert ev(pg, "document.querySelectorAll('#dlg .st-sess-today > div').length") >= 1, 'нет списка сессий'
+    pg.evaluate("() => { running.clear(); closeDlg(); render(); }")
+
+def t_notes(pg):
+    pg.evaluate("select('hades2')"); pg.wait_for_timeout(300)
+    ta = pg.locator('#main .notes-ta'); ta.click(); pg.keyboard.type('Остановился на Эребе. f i q e')
+    pg.evaluate("render()"); pg.wait_for_timeout(100)
+    assert ev(pg, "document.activeElement?.classList.contains('notes-ta')"), 'перерисовка выбила фокус из заметки'
+    pg.keyboard.type('!'); pg.wait_for_timeout(1100)
+    assert ev(pg, "byId('hades2').notes") == 'Остановился на Эребе. f i q e!', 'заметка не сохранилась: ' + str(ev(pg, "byId('hades2').notes"))
+    pg.keyboard.press('Escape'); pg.wait_for_timeout(100)
+    assert not ev(pg, "document.activeElement?.classList.contains('notes-ta')"), 'Esc не вышел из поля'
+
+def t_myshots(pg):
+    pg.evaluate("select('hades2')"); pg.wait_for_timeout(800)
+    assert ev(pg, "document.querySelectorAll('#main .gx-mine .gx-th').length") == 4, 'нет ленты «Мои скриншоты»'
+    ev(pg, "document.querySelector('#main .gx-mine .gx-th').click()", 300)
+    assert 'Мой скриншот' in ev(pg, "document.querySelector('#lb .lb-top span').textContent"), 'просмотр моих скриншотов не открылся'
+    pg.keyboard.press('Escape')
+
+def t_rawg_md(pg):
+    r = pg.evaluate("() => descBlocks('Intro text that is long enough for a lead paragraph here.\\n\\n###Gameplay\\nYou play as a **prisoner**.').blocks.map(b => b.k + ':' + b.t)")
+    assert r == ['p:Intro text that is long enough for a lead paragraph here.', 'h:Gameplay', 'p:You play as a prisoner.'], r
+
+def t_list_hours(pg):
+    r = ev(pg, "listHoursText('cat:x', [{extra:{hltb:{main:10}}},{completed:true, extra:{hltb:{main:5}}},{extra:{avgPlay:{h:4}}},{}])", 0)
+    assert r == '≈ 14 ч на прохождение', r
+    assert ev(pg, "listHoursText('all', [{extra:{hltb:{main:10}}}])", 0) == '', 'сумма не должна показываться во «Всех играх»'
+
 SCENARIOS = [('загрузка', t_load), ('выбор игры', t_select), ('описание и оценки', t_desc), ('просмотр скриншотов', t_lightbox),
              ('окна и настройки', t_dialogs), ('поиск Ctrl+K', t_palette), ('компактный режим', t_compact), ('ТВ-режим', t_tv),
-             ('геймпад', t_gamepad), ('статистика', t_stats)]
+             ('геймпад', t_gamepad), ('статистика', t_stats), ('время из Steam в статистику', t_steam_days),
+             ('статистика «Сегодня»', t_today), ('заметки к игре', t_notes), ('мои скриншоты', t_myshots), ('часы на прохождение списка', t_list_hours), ('разметка описаний RAWG', t_rawg_md)]
 
 def main():
     url = build()
